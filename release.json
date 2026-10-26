@@ -1,0 +1,1 @@
+{"version":"V11","name":"Account privato e cloud","date":"2026-10-22","changes":["Registrazione iniziale controllata e accesso con email/password","Sessioni sicure con cookie HttpOnly e password scrypt","Backup e sincronizzazione locale → Turso/Blob privato","Ripristino cloud da altri dispositivi","Nessun account Vercel richiesto ai visitatori"]}

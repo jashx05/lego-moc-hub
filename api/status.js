@@ -1,0 +1,2 @@
+import {reply,allowed,ready,sql} from './_lib/core.js';
+export default async function handler(req,res){if(!allowed(req,res,['GET']))return;const data={service:'LEGO MOC Hub',version:'V11',cloudConfigured:ready(),authentication:'email-password',storage:'private'};if(ready()){try{const x=await sql('SELECT COUNT(*) AS n FROM users');data.databaseReachable=true;data.accountsConfigured=Number(x[0]?.n||0)>0}catch{data.databaseReachable=false}}reply(res,200,data)}
