@@ -9,13 +9,14 @@ import { LDrawLoader } from 'three/addons/loaders/LDrawLoader.js';
 import { LDrawConditionalLineMaterial } from 'three/addons/materials/LDrawConditionalLineMaterial.js';
 import { serializeModel } from './ldraw-utils.js';
 
-const LIBRARY='https://cdn.jsdelivr.net/gh/kulits/ldraw-parts@f3d0c2256398c28fbb682f4bb08c59eed81fd4f1/ldraw/';
+// Files stay on our origin; the backend retrieves only allowlisted geometry from a fixed LDraw mirror.
+const LIBRARY='/api/ldraw?path=';
 const geometryCache=new WeakMap();
 let current=null;
 
 function info(mount,message){let e=mount.querySelector('.moc-ldraw-info');if(e)e.textContent=message;}
 function clearObject(object) { object?.traverse(o=>{if(o.geometry && !o.userData?.sharedGeometry) o.geometry.dispose();}); }
-function fail(mount,message){mount.innerHTML='<div class="loader"><strong>Impossibile completare il caricamento LDraw</strong><span></span><span>I modelli sono rimasti salvati. Verifica la connessione a jsDelivr e riprova a riaprire il progetto.</span></div>';mount.querySelector('span').textContent=message;}
+function fail(mount,message){mount.innerHTML='<div class="loader"><strong>Impossibile completare il caricamento LDraw</strong><span></span><span>I modelli sono rimasti salvati. Il modello è salvo. Controlla il codice del pezzo e la risposta dell’archivio LDraw; riprova ad aprirlo.</span></div>';mount.querySelector('span').textContent=message;}
 function parseAsync(loader,text){return new Promise((resolve,reject)=>loader.parse(text,resolve,reject));}
 function addOutlineForSelection(root,index,scene) {
   const g=root.children[index];if(!g)return null;
@@ -65,7 +66,7 @@ export async function showFullLDraw(parts,mount,colorFn,options={}) {
     if(cached){root=cached;info(mount,'Geometrie LDraw dalla cache');}
     else {
       const loader=new LDrawLoader();loader.setPartsLibraryPath(LIBRARY);loader.setConditionalLineMaterial(LDrawConditionalLineMaterial);
-      info(mount,'Caricamento palette e geometrie da LDraw.org (prima apertura più lenta)…');
+      info(mount,'Caricamento palette e geometrie LDraw tramite il server (prima apertura più lenta)…');
       await loader.preloadMaterials(LIBRARY+'LDConfig.ldr');if(closed)return state;
       root=await parseAsync(loader,serializeModel(parts));if(closed)return state;
       // LDrawLoader omits missing parts instead of throwing. Do not present partial models as complete.
