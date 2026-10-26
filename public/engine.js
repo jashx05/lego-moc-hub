@@ -273,7 +273,18 @@ function view(parts,mount,colorFn,{visibleCount=parts.length,highlightStart=-1,m
  if(active&&active.mount===mount&&active.parts===parts){active.update(visibleCount,highlightStart);return active}
  if(active){active.dispose();active=null}
  if(!parts.length){mount.innerHTML='<div class="loader">Il file non contiene mattoncini validi.</div>';return}
- const codes=findUnsupported(parts);if(codes.length){mount.innerHTML='<div class="loader"><strong>Alcuni pezzi richiedono la libreria LDraw completa</strong><span>'+codes.slice(0,12).map(x=>x.replace(/[<>&"']/g,'')).join(', ')+'</span><span>Il viewer locale non inventa geometrie di pezzi speciali.</span></div>';return}
+ const codes=findUnsupported(parts);
+ if(codes.length){
+   // Switch to real official LDraw meshes, never substitute boxes for curved/complex pieces.
+   const host=mount;let disposed=false,delegate=null;
+   mount.innerHTML='<div class="loader">Caricamento libreria LDraw completa… <span>Geometrie ufficiali per '+codes.length+' tipi di pezzi aggiuntivi.</span></div>';
+   import('/ldraw-full.js').then(m=>{
+     if(disposed)return;
+     return m.showFullLDraw(parts,host,colorFn,{visibleCount,highlightStart,mode}).then(x=>{if(disposed){x?.dispose();return;}delegate=x;delegate?.update(visibleCount,highlightStart)});
+   }).catch(err=>{if(!disposed){console.error('LDraw module load failed',err);host.innerHTML='<div class="loader"><strong>Impossibile caricare il renderer LDraw completo</strong><span>Verifica la connessione Internet e la disponibilità dei servizi CDN.</span></div>'}});
+   const proxy={dispose(){disposed=true;delegate?.dispose()},zoom(k){delegate?.zoom(k)},reset(){delegate?.reset()},update(n,start){visibleCount=n;highlightStart=start;delegate?.update(n,start)},metrics(){return delegate?.metrics()||{backend:'LDraw loading',parts:0}}};
+   active={...proxy,mount,parts};return active;
+ }
  // Canvas2D is the stable default. Some drivers create a valid WebGL2 context,
  // but silently produce an empty framebuffer. Until a GPU pixel-test confirms
  // non-empty frames on all supported drivers, prefer the verified CPU renderer.

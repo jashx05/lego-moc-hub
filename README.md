@@ -46,3 +46,8 @@ Una sola volta, prima di registrarsi, creare nelle impostazioni Vercel una varia
 py -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 Conservare il codice in un password manager, poi nella pagina `Account e sincronizzazione` creare il primo account. Dopo il primo accesso, eliminare la variabile di setup e ripubblicare per rimuovere il segreto dall'ambiente di esecuzione.
+
+## V12-preview: supporto LDraw (slope e pezzi speciali)
+`public/ldraw-full.js` carica su richiesta `Three.js r180` e la libreria ufficiale LDraw (mirror CDN pinning SHA). Per la Preview è necessaria connettività a jsDelivr. La vista Canvas precedente resta per i pezzi di catalogo base. I file `.ldr` sono letti localmente: al CDN vengono richieste esclusivamente forme standard `.dat` e la palette `LDConfig.ldr`, non i modelli privati.
+
+La versione non va promossa in produzione finché non è verificata l'apertura di Kurumi 443 pezzi e dei suoi step su browser reali, oltre a mantenere corretto Partenone. I riferimenti alle geometrie LDraw sono di proprietà dei rispettivi autori (CC BY 4.0).

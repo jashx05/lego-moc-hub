@@ -1,1 +1,11 @@
-{"version":"V11","name":"Account privato e cloud","date":"2026-10-22","changes":["Registrazione iniziale controllata e accesso con email/password","Sessioni sicure con cookie HttpOnly e password scrypt","Backup e sincronizzazione locale → Turso/Blob privato","Ripristino cloud da altri dispositivi","Nessun account Vercel richiesto ai visitatori"]}
+{
+  "version": "V12-preview",
+  "name": "Supporto forme LDraw reali (Preview)",
+  "date": "2026-10-26",
+  "changes": [
+    "Rendering LDraw ufficiale per modelli con slope, pezzi curvi e parti speciali",
+    "Motore Canvas precedente conservato per modelli semplici",
+    "Istruzioni e selezione adattate al rendering LDraw (Preview)",
+    "Nessuna modifica a Turso, Blob o ai progetti originali"
+  ]
+}
