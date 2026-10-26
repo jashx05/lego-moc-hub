@@ -1,10 +1,11 @@
 import crypto from 'node:crypto';
-import {reply,allowed,checkMutation,sql,execSql,requireUser,validateId,safeError} from './_lib/core.js';
+import {del} from '@vercel/blob';
+import {reply,allowed,checkMutation,sql,execSql,batch,requireUser,validateId,safeError} from './_lib/core.js';
 
 function validVisibility(b) { return b && typeof b.isPublic === 'boolean'; }
 export default async function handler(req,res){
  try {
-  if(!allowed(req,res,['GET','POST','PATCH']))return;
+  if(!allowed(req,res,['GET','POST','PATCH','DELETE']))return;
   const user=await requireUser(req,res);if(!user)return;
   const admin=user.role==='owner';
   if(req.method==='GET'){
@@ -17,6 +18,25 @@ export default async function handler(req,res){
   }
   if(!checkMutation(req,res))return;
   const b=typeof req.body==='string'?JSON.parse(req.body):req.body||{};
+  if(req.method==='DELETE'){
+   const id=String(req.query?.id||'');
+   if(!validateId(id))return reply(res,400,{error:'Identificativo progetto non valido'});
+   // Auth is enforced before any file deletion; members can delete only their own projects.
+   const matches=await sql("SELECT id,owner_id FROM projects WHERE id=? AND (owner_id=? OR ?='owner') LIMIT 1",[id,user.id,user.role]);
+   if(!matches.length)return reply(res,404,{error:'Progetto non trovato o accesso negato'});
+   const fileRows=await sql('SELECT blob_path FROM project_files WHERE project_id=?',[id]);
+   const paths=[...new Set(fileRows.map(f=>f.blob_path).filter(Boolean))];
+   // Keep SQL rows intact if private Blob deletion fails; users can safely retry.
+   for(let i=0;i<paths.length;i+=25)await del(paths.slice(i,i+25));
+   await batch([
+    {sql:'DELETE FROM version_parts WHERE version_id IN (SELECT id FROM project_versions WHERE project_id=?)',args:[id]},
+    {sql:'DELETE FROM build_steps WHERE version_id IN (SELECT id FROM project_versions WHERE project_id=?)',args:[id]},
+    {sql:'DELETE FROM project_files WHERE project_id=?',args:[id]},
+    {sql:'DELETE FROM project_versions WHERE project_id=?',args:[id]},
+    {sql:"DELETE FROM projects WHERE id=? AND (owner_id=? OR ?='owner')",args:[id,user.id,user.role]}
+   ]);
+   return reply(res,200,{deleted:true,id,filesRemoved:paths.length});
+  }
   if(req.method==='PATCH'){
    // Changing visibility, even on another member's project, is reserved exclusively to the owner.
    if(!admin)return reply(res,403,{error:'Solo il proprietario del sito può cambiare la visibilità'});
