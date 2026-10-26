@@ -1,11 +1,6 @@
 {
-  "version": "V12-preview",
-  "name": "Supporto forme LDraw reali (Preview)",
+  "version": "V13",
   "date": "2026-10-26",
-  "changes": [
-    "Rendering LDraw ufficiale per modelli con slope, pezzi curvi e parti speciali",
-    "Motore Canvas precedente conservato per modelli semplici",
-    "Istruzioni e selezione adattate al rendering LDraw (Preview)",
-    "Nessuna modifica a Turso, Blob o ai progetti originali"
-  ]
+  "title": "Community — account, galleria pubblica e privacy amministrata",
+  "notes": "Registrazione autonoma, progetti pubblici di default, visibilità gestita solo dall'owner e accesso pubblico ai file autorizzati."
 }

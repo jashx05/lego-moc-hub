@@ -5,7 +5,8 @@
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { LDrawLoader, LDrawConditionalLineMaterial } from 'three/addons/loaders/LDrawLoader.js';
+import { LDrawLoader } from 'three/addons/loaders/LDrawLoader.js';
+import { LDrawConditionalLineMaterial } from 'three/addons/materials/LDrawConditionalLineMaterial.js';
 import { serializeModel } from './ldraw-utils.js';
 
 const LIBRARY='https://cdn.jsdelivr.net/gh/kulits/ldraw-parts@f3d0c2256398c28fbb682f4bb08c59eed81fd4f1/ldraw/';

@@ -1,8 +1,9 @@
 import crypto from 'node:crypto';
+import {allowRegistration} from './_lib/registration.js';
 import {reply,allowed,checkMutation,ready,sql,execSql,emailOf,hashPassword,checkPassword,issueSession,userFrom,cookies,cookieName,digest,putCookie,safeError} from './_lib/core.js';
 const LIMIT=5,WINDOW=15*60000;
 export default async function handler(req,res){try{const action=String(req.query?.action||'me');if(!ready())return reply(res,503,{error:'Cloud non ancora configurato'});
- if(action==='me'){if(!allowed(req,res,['GET']))return;const user=await userFrom(req);const n=await sql('SELECT COUNT(*) AS n FROM users');return reply(res,200,{authenticated:!!user,user,setupRequired:Number(n[0]?.n||0)===0,cloudConfigured:true,version:'V11'});}
+ if(action==='me'){if(!allowed(req,res,['GET']))return;const user=await userFrom(req);const n=await sql('SELECT COUNT(*) AS n FROM users');return reply(res,200,{authenticated:!!user,user,setupRequired:Number(n[0]?.n||0)===0,cloudConfigured:true,version:'V13'});}
  if(!allowed(req,res,['POST'])||!checkMutation(req,res))return;
  if(action==='logout'){const token=cookies(req)[cookieName()];if(token)await execSql('DELETE FROM user_sessions WHERE token_hash=?',[digest(token)]);putCookie(res,'',0);return reply(res,200,{ok:true})}
  const body=typeof req.body==='string'?JSON.parse(req.body):req.body||{};const email=emailOf(body.email),password=body.password;
@@ -12,6 +13,18 @@ export default async function handler(req,res){try{const action=String(req.query
   const secret=process.env.MOC_HUB_SETUP_KEY||'';if(secret.length<24||typeof body.setupCode!=='string')return reply(res,503,{error:'Codice di attivazione non disponibile'});
   const x=Buffer.from(crypto.createHash('sha256').update(body.setupCode).digest()),y=Buffer.from(crypto.createHash('sha256').update(secret).digest());if(!crypto.timingSafeEqual(x,y))return reply(res,403,{error:'Codice di attivazione non valido'});
   const pw=await hashPassword(password),id=crypto.randomUUID();await execSql('INSERT INTO users(id,email,password_hash,role) VALUES(?,?,?,?)',[id,email,pw,'owner']);await issueSession(id,res);return reply(res,201,{ok:true,user:{id,email,role:'owner'}});
+ }
+ if(action==='register'){
+  const initial=await sql('SELECT COUNT(*) AS n FROM users');
+  if(Number(initial[0]?.n||0)===0)return reply(res,403,{error:'Il proprietario deve prima attivare il sito'});
+  if(!await allowRegistration(req))return reply(res,429,{error:'Troppe registrazioni da questa connessione. Riprova più tardi.'});
+  const exists=await sql('SELECT id FROM users WHERE email=? LIMIT 1',[email]);
+  if(exists.length)return reply(res,409,{error:'Email già registrata: effettua l’accesso'});
+  const pw=await hashPassword(password),id=crypto.randomUUID();
+  try {await execSql('INSERT INTO users(id,email,password_hash,role) VALUES(?,?,?,?)',[id,email,pw,'member']);}
+  catch(e){if(/UNIQUE|constraint/i.test(String(e?.message||'')))return reply(res,409,{error:'Email già registrata'});throw e}
+  await issueSession(id,res);
+  return reply(res,201,{ok:true,user:{id,email,role:'member'}});
  }
  if(action==='login'){
   const key=digest(email),history=(await sql('SELECT failures,locked_until FROM login_attempts WHERE id=?',[key]))[0];if(history?.locked_until && history.locked_until>new Date().toISOString())return reply(res,429,{error:'Troppi tentativi. Riprova tra 15 minuti.'});

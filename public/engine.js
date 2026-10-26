@@ -281,7 +281,12 @@ function view(parts,mount,colorFn,{visibleCount=parts.length,highlightStart=-1,m
    import('/ldraw-full.js').then(m=>{
      if(disposed)return;
      return m.showFullLDraw(parts,host,colorFn,{visibleCount,highlightStart,mode}).then(x=>{if(disposed){x?.dispose();return;}delegate=x;delegate?.update(visibleCount,highlightStart)});
-   }).catch(err=>{if(!disposed){console.error('LDraw module load failed',err);host.innerHTML='<div class="loader"><strong>Impossibile caricare il renderer LDraw completo</strong><span>Verifica la connessione Internet e la disponibilità dei servizi CDN.</span></div>'}});
+   }).catch(err=>{
+     if(disposed)return;
+     console.error('LDraw module load failed',err);
+     host.innerHTML='<div class="loader"><strong>Impossibile caricare il renderer LDraw completo</strong><span></span><span>Controlla la console del browser (F12) per i dettagli tecnici.</span></div>';
+     host.querySelector('span').textContent=String(err?.message||err||'Errore sconosciuto').slice(0,360);
+   });
    const proxy={dispose(){disposed=true;delegate?.dispose()},zoom(k){delegate?.zoom(k)},reset(){delegate?.reset()},update(n,start){visibleCount=n;highlightStart=start;delegate?.update(n,start)},metrics(){return delegate?.metrics()||{backend:'LDraw loading',parts:0}}};
    active={...proxy,mount,parts};return active;
  }
