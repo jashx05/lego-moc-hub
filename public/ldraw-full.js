@@ -76,6 +76,14 @@ export async function showFullLDraw(parts,mount,colorFn,options={}) {
     if(closed)return state;
     // Cloned container keeps the cached model intact across view switches.
     root=root.clone(true);
+    // Keep geometry unchanged while softening the very dark per-brick LDraw seams.
+    // Clone materials so the cached source and the instruction viewer remain untouched.
+    if(mode==='model')root.traverse(o=>{
+      if(!o.isLineSegments && !o.isLine)return;
+      if(!o.material)return;
+      const soften=m=>{const copy=m.clone();copy.transparent=true;copy.opacity=0.32;return copy;};
+      o.material=Array.isArray(o.material)?o.material.map(soften):soften(o.material);
+    });
     root.scale.y=-1;
     scene=new THREE.Scene();scene.background=new THREE.Color(mode==='paper'?0xe5f2ff:0xe4ecf6);
     scene.add(root);
