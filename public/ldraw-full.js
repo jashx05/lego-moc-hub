@@ -40,9 +40,9 @@ export async function showFullLDraw(parts,mount,colorFn,options={}) {
   mount.innerHTML='<div class="moc-ldraw-info" role="status" style="padding:7px 10px;background:#12233df2;color:#e9f2ff;border-radius:6px;font-size:12px">Caricamento geometrie LDraw originali…</div><div class="moc-ldraw-host" style="width:100%;height:100%;min-height:310px;position:relative"></div>';
   const target=mount.querySelector('.moc-ldraw-host');
   function disposal(){closed=true;if(current===state)current=null;cancelAnimationFrame(frame);ob?.disconnect();controls?.dispose();selection?.dispose();if(renderer){renderer.dispose();renderer.domElement.remove()}}
-  const state={update(n,start){visible(n,start)},zoom(k){if(!controls)return;const delta=controls.object.position.clone().sub(controls.target).multiplyScalar(1/k);controls.object.position.copy(controls.target).add(delta);controls.update();draw();},reset(){if(!controls)return;controls.object.position.copy(initialPosition);controls.target.copy(center);controls.update();draw();},dispose:disposal,metrics:()=>({backend:'Three.js LDrawLoader',parts:visibleTotal,selectedPart:selected})};
+  const state={update(n,start){visible(n,start)},zoom(k){if(!controls)return;const delta=controls.object.position.clone().sub(controls.target).multiplyScalar(1/k);controls.object.position.copy(controls.target).add(delta);controls.update();draw();},reset(){if(!controls)return;controls.object.position.copy(initialPosition);controls.target.copy(guideFocus||center);controls.update();draw();},dispose:disposal,metrics:()=>({backend:'Three.js LDrawLoader',parts:visibleTotal,selectedPart:selected})};
   current=state;
-  let visibleTotal=visibleCount,initialPosition,center;
+  let visibleTotal=visibleCount,initialPosition,center,guideFocus,lastGuideSide='++';
   function draw(){if(!closed&&renderer)renderer.render(scene,camera)}
   function tick(){if(closed)return;controls?.update();draw();frame=requestAnimationFrame(tick)}
   let scene,camera;
@@ -51,13 +51,38 @@ export async function showFullLDraw(parts,mount,colorFn,options={}) {
     for(let i=0;i<root.children.length;i++){
       const node=root.children[i];node.visible=i<idx;
       if(node.userData._originalMaterials){for(const [obj,orig] of node.userData._originalMaterials){obj.material=orig;}node.userData._originalMaterials=null;}
-      if(i<idx && start>=0 && i>=startAt && mode==='paper'){
-        const arr=[];node.traverse(o=>{if(o.isMesh){const orig=o.material;const swap=Array.isArray(orig)?orig.map(v=>v.clone()):orig.clone();
-          for(const m of (Array.isArray(swap)?swap:[swap])) {if(m.color)m.color.setHex(0xf9a428);if(m.emissive)m.emissive.setHex(0x301a00)}o.material=swap;arr.push([o,orig]);}});
-        node.userData._originalMaterials=arr;
+      if(mode==='paper'){
+        const added=i<idx && start>=0 && i>=startAt;
+        // LEGO-style: preserve each brick's actual color; emphasize only the
+        // newly placed silhouette, with a contrasting outline for blue pieces.
+        let closeToCyan=false;
+        if(added)node.traverse(o=>{if(o.isMesh&&o.material){const m=Array.isArray(o.material)?o.material[0]:o.material;
+          if(m?.color){const c=m.color;closeToCyan=closeToCyan||(c.b>c.r*1.3&&c.g>c.r*1.25);}}});
+        node.traverse(o=>{if(!o.isLine&&!o.isLineSegments)return;
+          for(const m of (Array.isArray(o.material)?o.material:[o.material])){
+            if(!m)continue;m.transparent=true;m.opacity=added?0.90:0.23;
+            if(m.color)m.color.setHex(added?(closeToCyan?0x124568:0x00a9e8):0x526176);
+          }
+        });
       }
     }
     if(selected>=idx){selection?.dispose();selection=null;selected=-1;}
+    if(mode==='paper'&&camera&&controls&&idx>0){
+      // Reframe each instruction from the side of its new assembly area.
+      // Different steps therefore show different faces instead of a fixed view.
+      const assembled=new THREE.Box3(),fresh=new THREE.Box3();
+      for(let i=0;i<idx;i++)assembled.expandByObject(root.children[i]);
+      for(let i=startAt;i<idx;i++)fresh.expandByObject(root.children[i]);
+      if(fresh.isEmpty())fresh.copy(assembled);
+      const base=assembled.getCenter(new THREE.Vector3()),target=fresh.getCenter(new THREE.Vector3());
+      const extent=assembled.getSize(new THREE.Vector3()),span=Math.max(extent.x,extent.y,extent.z,20);
+      const dx=target.x-base.x,dz=target.z-base.z;
+      if(Math.abs(dx)>span*.10||Math.abs(dz)>span*.10)lastGuideSide=(dx<0?'-':'+')+(dz<0?'-':'+');
+      guideFocus=base.clone().lerp(target,.22);
+      const vx=lastGuideSide[0]==='-'?-1:1,vz=lastGuideSide[1]==='-'?-1:1;
+      const eye=guideFocus.clone().add(new THREE.Vector3(vx*span*1.35,span*.95,vz*span*1.55));
+      camera.position.copy(eye);controls.target.copy(guideFocus);controls.update();initialPosition=eye.clone();
+    }
     draw();
   }
   try {
@@ -78,10 +103,12 @@ export async function showFullLDraw(parts,mount,colorFn,options={}) {
     root=root.clone(true);
     // Keep geometry unchanged while softening the very dark per-brick LDraw seams.
     // Clone materials so the cached source and the instruction viewer remain untouched.
-    if(mode==='model')root.traverse(o=>{
+    root.traverse(o=>{
       if(!o.isLineSegments && !o.isLine)return;
       if(!o.material)return;
-      const soften=m=>{const copy=m.clone();copy.transparent=true;copy.opacity=0.32;return copy;};
+      // Keep selection outlines independent. Existing seams are barely visible in
+      // the model view; instructions adapt line contrast to the step being built.
+      const soften=m=>{const copy=m.clone();copy.transparent=true;copy.opacity=mode==='model'?0.12:0.23;return copy;};
       o.material=Array.isArray(o.material)?o.material.map(soften):soften(o.material);
     });
     root.scale.y=-1;
@@ -95,7 +122,7 @@ export async function showFullLDraw(parts,mount,colorFn,options={}) {
     renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,preserveDrawingBuffer:mode==='paper'});
     renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.6));renderer.setSize(w,h);renderer.outputColorSpace=THREE.SRGBColorSpace;
     target.append(renderer.domElement);
-    scene.add(new THREE.AmbientLight(0xffffff,2.0));const sunlight=new THREE.DirectionalLight(0xffffff,2.4);sunlight.position.set(200,450,300);scene.add(sunlight);
+    scene.add(new THREE.AmbientLight(0xffffff,1.5));const sunlight=new THREE.DirectionalLight(0xffffff,1.9);sunlight.position.set(200,450,300);scene.add(sunlight);
     controls=new OrbitControls(camera,renderer.domElement);controls.target.copy(center);controls.enableDamping=mode!=='paper';controls.enableRotate=mode!=='paper';controls.enablePan=mode!=='paper';controls.enableZoom=mode!=='paper';controls.minDistance=max*.3;controls.maxDistance=max*8;controls.update();
     ob=new ResizeObserver(()=>{if(closed)return;const w=Math.max(220,target.clientWidth),h=Math.max(280,target.clientHeight);camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);draw()});ob.observe(target);
     visible(visibleCount,options.highlightStart??-1);
