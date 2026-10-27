@@ -40,9 +40,22 @@ export async function showFullLDraw(parts,mount,colorFn,options={}) {
   mount.innerHTML='<div class="moc-ldraw-info" role="status" style="padding:7px 10px;background:#12233df2;color:#e9f2ff;border-radius:6px;font-size:12px">Caricamento geometrie LDraw originali…</div><div class="moc-ldraw-host" style="width:100%;height:100%;min-height:310px;position:relative"></div>';
   const target=mount.querySelector('.moc-ldraw-host');
   function disposal(){closed=true;if(current===state)current=null;cancelAnimationFrame(frame);ob?.disconnect();controls?.dispose();selection?.dispose();if(renderer){renderer.dispose();renderer.domElement.remove()}}
-  const state={update(n,start){visible(n,start)},zoom(k){if(!controls)return;const delta=controls.object.position.clone().sub(controls.target).multiplyScalar(1/k);controls.object.position.copy(controls.target).add(delta);controls.update();draw();},reset(){if(!controls)return;controls.object.position.copy(initialPosition);controls.target.copy(guideFocus||center);controls.update();draw();},dispose:disposal,metrics:()=>({backend:'Three.js LDrawLoader',parts:visibleTotal,selectedPart:selected})};
+  const state={update(n,start){visible(n,start)},zoom(k){if(!controls)return;const delta=controls.object.position.clone().sub(controls.target).multiplyScalar(1/k);controls.object.position.copy(controls.target).add(delta);controls.update();draw();},reset(){if(!controls)return;modelUserMoved=false;controls.object.position.copy(initialPosition);controls.target.copy(guideFocus||center);controls.update();draw();},dispose:disposal,metrics:()=>({backend:'Three.js LDrawLoader',parts:visibleTotal,selectedPart:selected})};
   current=state;
-  let visibleTotal=visibleCount,initialPosition,center,guideFocus,partBounds=[];
+  let visibleTotal=visibleCount,initialPosition,center,guideFocus,partBounds=[],modelUserMoved=false,modelRadius=20;
+  function fitModelToViewport(width,height){
+    if(mode!=='model'||!camera||!center)return;
+    const halfV=THREE.MathUtils.degToRad(camera.fov*.5);
+    const halfH=Math.atan(Math.tan(halfV)*Math.max(0.2,width/height));
+    const smallest=Math.max(.05,Math.min(halfV,halfH));
+    // Fit the entire bounding sphere (head, hair and base), plus a comfortable margin.
+    const distance=modelRadius*1.3/Math.sin(smallest);
+    const direction=new THREE.Vector3(1.2,.77,1.5).normalize();
+    initialPosition=center.clone().addScaledVector(direction,distance);
+    camera.position.copy(initialPosition);
+    if(controls){controls.target.copy(center);controls.maxDistance=Math.max(distance*4,100);controls.update();}
+    camera.lookAt(center);
+  }
   function draw(){if(!closed&&renderer)renderer.render(scene,camera)}
   function tick(){if(closed)return;controls?.update();draw();frame=requestAnimationFrame(tick)}
   let scene,camera;
@@ -161,19 +174,20 @@ export async function showFullLDraw(parts,mount,colorFn,options={}) {
     root.scale.y=-1;
     root.updateMatrixWorld(true);
     partBounds=root.children.map(node=>new THREE.Box3().setFromObject(node));
-    scene=new THREE.Scene();scene.background=new THREE.Color(mode==='paper'?0xe5f2ff:0xe4ecf6);
+    scene=new THREE.Scene();scene.background=new THREE.Color(mode==='paper'?0xe5f2ff:0x252a31);
     scene.add(root);
     const box=new THREE.Box3().setFromObject(root);center=box.getCenter(new THREE.Vector3());const size=box.getSize(new THREE.Vector3());
-    const radius=Math.max(size.length()/2,20),max=Math.max(size.x,size.y,size.z,20);
+    const radius=Math.max(size.length()/2,20),max=Math.max(size.x,size.y,size.z,20);modelRadius=radius;
     const w=Math.max(220,target.clientWidth),h=Math.max(280,target.clientHeight);
     camera=new THREE.PerspectiveCamera(35,w/h,.1,Math.max(10000,max*30));
     initialPosition=center.clone().add(new THREE.Vector3(max*1.20,max*.77,max*1.50));camera.position.copy(initialPosition);camera.lookAt(center);
+    fitModelToViewport(w,h);
     renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,preserveDrawingBuffer:mode==='paper'});
     renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.6));renderer.setSize(w,h);renderer.outputColorSpace=THREE.SRGBColorSpace;
     target.append(renderer.domElement);
     scene.add(new THREE.AmbientLight(0xffffff,1.5));const sunlight=new THREE.DirectionalLight(0xffffff,1.9);sunlight.position.set(200,450,300);scene.add(sunlight);
-    controls=new OrbitControls(camera,renderer.domElement);controls.target.copy(center);controls.enableDamping=mode!=='paper';controls.enableRotate=true;controls.enablePan=true;controls.enableZoom=true;controls.minDistance=max*.3;controls.maxDistance=max*8;controls.update();
-    ob=new ResizeObserver(()=>{if(closed)return;const w=Math.max(220,target.clientWidth),h=Math.max(280,target.clientHeight);camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);draw()});ob.observe(target);
+    controls=new OrbitControls(camera,renderer.domElement);controls.target.copy(center);controls.enableDamping=mode!=='paper';controls.enableRotate=true;controls.enablePan=true;controls.enableZoom=true;controls.minDistance=Math.max(20,radius*.4);controls.maxDistance=Math.max(100,center.distanceTo(initialPosition)*4);controls.addEventListener('start',()=>{if(mode==='model')modelUserMoved=true});controls.update();
+    ob=new ResizeObserver(()=>{if(closed)return;const w=Math.max(220,target.clientWidth),h=Math.max(280,target.clientHeight);camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);if(mode==='model'&&!modelUserMoved)fitModelToViewport(w,h);draw()});ob.observe(target);
     visible(visibleCount,options.highlightStart??-1);
     if(mode==='model'){
       const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2(),down={x:0,y:0};let moved=false;
