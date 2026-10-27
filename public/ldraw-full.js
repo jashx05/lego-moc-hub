@@ -42,10 +42,34 @@ export async function showFullLDraw(parts,mount,colorFn,options={}) {
   function disposal(){closed=true;if(current===state)current=null;cancelAnimationFrame(frame);ob?.disconnect();controls?.dispose();selection?.dispose();if(renderer){renderer.dispose();renderer.domElement.remove()}}
   const state={update(n,start){visible(n,start)},zoom(k){if(!controls)return;const delta=controls.object.position.clone().sub(controls.target).multiplyScalar(1/k);controls.object.position.copy(controls.target).add(delta);controls.update();draw();},reset(){if(!controls)return;controls.object.position.copy(initialPosition);controls.target.copy(guideFocus||center);controls.update();draw();},dispose:disposal,metrics:()=>({backend:'Three.js LDrawLoader',parts:visibleTotal,selectedPart:selected})};
   current=state;
-  let visibleTotal=visibleCount,initialPosition,center,guideFocus,lastGuideSide='++';
+  let visibleTotal=visibleCount,initialPosition,center,guideFocus,partBounds=[];
   function draw(){if(!closed&&renderer)renderer.render(scene,camera)}
   function tick(){if(closed)return;controls?.update();draw();frame=requestAnimationFrame(tick)}
   let scene,camera;
+  function renderTrueBlueprint(count,firstNew){
+    const host=document.getElementById('blueprintMount');if(!host||!partBounds.length)return;
+    const active=partBounds.slice(0,count),valid=active.filter(b=>b&&!b.isEmpty());
+    if(!valid.length)return;
+    const total=new THREE.Box3();for(const b of valid)total.union(b);
+    function panel(kind){
+      const top=kind==='top',left=total.min.x,right=total.max.x,
+        lo=top?total.min.z:total.min.y,hi=top?total.max.z:total.max.y;
+      const width=460,height=230,scale=Math.min(424/Math.max(right-left,20),194/Math.max(hi-lo,20)),
+        ox=(width-(right-left)*scale)/2,oy=(height-(hi-lo)*scale)/2;
+      let out='<svg viewBox="0 0 460 230" role="img" aria-label="'+(top?'Pianta':'Alzato')+' geometrie LDraw" style="width:100%;border:1px solid #9dbdd8;border-radius:10px;background:#e5f2ff">';
+      out+='<rect width="460" height="230" fill="#e5f2ff"/>';
+      for(let i=0;i<count;i++){
+        const b=partBounds[i];if(!b||b.isEmpty())continue;
+        const x=ox+(b.min.x-left)*scale,y=oy+((top?b.min.z:b.min.y)-lo)*scale,
+          w=Math.max(1.6,(b.max.x-b.min.x)*scale),
+          h=Math.max(1.6,((top?b.max.z:b.max.y)-(top?b.min.z:b.min.y))*scale);
+        const added=i>=firstNew;
+        out+='<rect x="'+x.toFixed(2)+'" y="'+y.toFixed(2)+'" width="'+w.toFixed(2)+'" height="'+h.toFixed(2)+'" fill="'+(added?'#6fcce9':'#9caec0')+'" fill-opacity="'+(added?'.55':'.14')+'" stroke="'+(added?'#008ac3':'#8397a8')+'" stroke-opacity="'+(added?'1':'.3')+'" stroke-width="'+(added?'1.5':'.65')+'"/>';
+      }
+      return out+'</svg>';
+    }
+    host.innerHTML='<div class="blueprint-grid"><div><div class="eyebrow" style="margin:7px 0">Pianta · X/Z (dall’alto)</div>'+panel('top')+'</div><div><div class="eyebrow" style="margin:7px 0">Alzato · X/Y (frontale)</div>'+panel('front')+'</div></div><p class="hint">Ingombri calcolati dalle geometrie LDraw complete, compresi slope e pezzi speciali. Azzurro: nuovo; grigio: già montato. Le viste sono schemi di ingombro, non sostituiscono il montaggio 3D.</p>';
+  }
   function visible(n,start=-1){visibleTotal=Math.max(0,Math.min(n,parts.length));if(!root)return;
     const idx=visibleTotal;const startAt=Math.max(0,start);
     for(let i=0;i<root.children.length;i++){
@@ -68,20 +92,43 @@ export async function showFullLDraw(parts,mount,colorFn,options={}) {
     }
     if(selected>=idx){selection?.dispose();selection=null;selected=-1;}
     if(mode==='paper'&&camera&&controls&&idx>0){
-      // Reframe each instruction from the side of its new assembly area.
-      // Different steps therefore show different faces instead of a fixed view.
       const assembled=new THREE.Box3(),fresh=new THREE.Box3();
-      for(let i=0;i<idx;i++)assembled.expandByObject(root.children[i]);
-      for(let i=startAt;i<idx;i++)fresh.expandByObject(root.children[i]);
+      for(let i=0;i<idx;i++)assembled.union(partBounds[i]);
+      for(let i=startAt;i<idx;i++)fresh.union(partBounds[i]);
       if(fresh.isEmpty())fresh.copy(assembled);
-      const base=assembled.getCenter(new THREE.Vector3()),target=fresh.getCenter(new THREE.Vector3());
+      const base=assembled.getCenter(new THREE.Vector3()),newCenter=fresh.getCenter(new THREE.Vector3());
       const extent=assembled.getSize(new THREE.Vector3()),span=Math.max(extent.x,extent.y,extent.z,20);
-      const dx=target.x-base.x,dz=target.z-base.z;
-      if(Math.abs(dx)>span*.10||Math.abs(dz)>span*.10)lastGuideSide=(dx<0?'-':'+')+(dz<0?'-':'+');
-      guideFocus=base.clone().lerp(target,.22);
-      const vx=lastGuideSide[0]==='-'?-1:1,vz=lastGuideSide[1]==='-'?-1:1;
-      const eye=guideFocus.clone().add(new THREE.Vector3(vx*span*1.35,span*.95,vz*span*1.55));
-      camera.position.copy(eye);controls.target.copy(guideFocus);controls.update();initialPosition=eye.clone();
+      guideFocus=base.clone().lerp(newCenter,.18);
+      // Score candidate viewpoints by actual ray visibility of newly added meshes.
+      // The old position-only heuristic frequently put the new part behind Kurumi.
+      const visibleMeshes=[];for(let i=0;i<idx;i++)root.children[i].traverse(o=>{if(o.isMesh&&o.visible)visibleMeshes.push(o)});
+      const caster=new THREE.Raycaster();
+      const freshIndices=[];for(let i=startAt;i<idx;i++)freshIndices.push(i);
+      const sampled=freshIndices.length<=6?freshIndices:freshIndices.filter((_,j)=>j%Math.ceil(freshIndices.length/6)===0);
+      const dirs=[[1,1,.78],[1,-1,.78],[-1,1,.78],[-1,-1,.78],[1,0,.7],[-1,0,.7],[0,1,.7],[0,-1,.7],[0,0,2.5]];
+      let best=null,bestScore=-Infinity;
+      for(const [vx,vz,vy] of dirs){
+        const unit=new THREE.Vector3(vx,vy,vz).normalize();
+        const eye=guideFocus.clone().addScaledVector(unit,span*2.65);
+        let score=0;
+        for(const i of sampled){
+          const b=partBounds[i];if(!b||b.isEmpty())continue;
+          const center=b.getCenter(new THREE.Vector3()),size=b.getSize(new THREE.Vector3());
+          const probes=[center,
+            center.clone().add(new THREE.Vector3(size.x*.32,size.y*.32,size.z*.32))];
+          for(const probe of probes){
+            const ray=probe.clone().sub(eye),distance=ray.length();
+            caster.set(eye,ray.normalize());caster.near=0;caster.far=distance+Math.max(3,span*.02);
+            const hit=caster.intersectObjects(visibleMeshes,false).find(h=>h.object.isMesh);
+            if(hit&&pointOwner(hit,root)>=startAt)score+=1;
+          }
+        }
+        // Keep the whole base clearly legible; favor familiar three-quarter angles on ties.
+        if(vx&&vz)score+=.12;
+        if(score>bestScore){bestScore=score;best=eye;}
+      }
+      if(best){camera.position.copy(best);controls.target.copy(guideFocus);controls.update();initialPosition=best.clone();}
+      renderTrueBlueprint(idx,startAt);
     }
     draw();
   }
@@ -112,6 +159,8 @@ export async function showFullLDraw(parts,mount,colorFn,options={}) {
       o.material=Array.isArray(o.material)?o.material.map(soften):soften(o.material);
     });
     root.scale.y=-1;
+    root.updateMatrixWorld(true);
+    partBounds=root.children.map(node=>new THREE.Box3().setFromObject(node));
     scene=new THREE.Scene();scene.background=new THREE.Color(mode==='paper'?0xe5f2ff:0xe4ecf6);
     scene.add(root);
     const box=new THREE.Box3().setFromObject(root);center=box.getCenter(new THREE.Vector3());const size=box.getSize(new THREE.Vector3());
@@ -123,7 +172,7 @@ export async function showFullLDraw(parts,mount,colorFn,options={}) {
     renderer.setPixelRatio(Math.min(devicePixelRatio||1,1.6));renderer.setSize(w,h);renderer.outputColorSpace=THREE.SRGBColorSpace;
     target.append(renderer.domElement);
     scene.add(new THREE.AmbientLight(0xffffff,1.5));const sunlight=new THREE.DirectionalLight(0xffffff,1.9);sunlight.position.set(200,450,300);scene.add(sunlight);
-    controls=new OrbitControls(camera,renderer.domElement);controls.target.copy(center);controls.enableDamping=mode!=='paper';controls.enableRotate=mode!=='paper';controls.enablePan=mode!=='paper';controls.enableZoom=mode!=='paper';controls.minDistance=max*.3;controls.maxDistance=max*8;controls.update();
+    controls=new OrbitControls(camera,renderer.domElement);controls.target.copy(center);controls.enableDamping=mode!=='paper';controls.enableRotate=true;controls.enablePan=true;controls.enableZoom=true;controls.minDistance=max*.3;controls.maxDistance=max*8;controls.update();
     ob=new ResizeObserver(()=>{if(closed)return;const w=Math.max(220,target.clientWidth),h=Math.max(280,target.clientHeight);camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h);draw()});ob.observe(target);
     visible(visibleCount,options.highlightStart??-1);
     if(mode==='model'){
