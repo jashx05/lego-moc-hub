@@ -205,8 +205,8 @@ function cpuView(parts,mount,colorFn,{visibleCount=parts.length,highlightStart=-
                 const pi=py*rw+px,zz=depth[pi];if(z+Math.max(.12,1.8/scale)<zz)continue;
                 let k=4*pi;
                 if(selected&&mode==='model'){pixels[k]=0;pixels[k+1]=186;pixels[k+2]=255;}
-                else if(highlight&&mode==='paper'){pixels[k]=11;pixels[k+1]=151;pixels[k+2]=213;}
-                else{const dark=(ox||oy)?.61:(mode==='paper'?.40:.39);pixels[k]=Math.round(pixels[k]*dark);pixels[k+1]=Math.round(pixels[k+1]*dark);pixels[k+2]=Math.round(pixels[k+2]*dark);}
+                else if(highlight&&mode==='paper'){pixels[k]=0;pixels[k+1]=158;pixels[k+2]=218;}
+                else{const dark=(ox||oy)?.82:(mode==='paper'?.76:.39);pixels[k]=Math.round(pixels[k]*dark);pixels[k+1]=Math.round(pixels[k+1]*dark);pixels[k+2]=Math.round(pixels[k+2]*dark);}
              }}}
     }
     // General seam and stud outlines. Selection is handled *per visible pixel* below,
@@ -246,6 +246,16 @@ function cpuView(parts,mount,colorFn,{visibleCount=parts.length,highlightStart=-
     if(hitIds){pickBuffer=hitIds;pickWidth=rw;pickHeight=rh;selectionStats={selectedVisiblePixels,selectedContourPixels,selectedBounds};}
     draws++;lastDrawMs=+(performance.now()-start).toFixed(1);
  }
+ function autoPaperAngle(count,start){
+   if(mode!=='paper'||start<0||count<=0)return;
+   const recent=parts.slice(Math.min(start,count-1),count),assembled=parts.slice(0,count);
+   if(!recent.length||!assembled.length)return;
+   const mean=(arr,k)=>arr.reduce((n,p)=>n+(Number(p[k])||0),0)/arr.length;
+   const dx=mean(recent,'x')-mean(assembled,'x'),dz=mean(recent,'z')-mean(assembled,'z');
+   // Show the assembly from the side where the new parts are located.
+   if(Math.abs(dx)+Math.abs(dz)>12)state.yaw=Math.atan2(dx>=0?1:-1,dz>=0?1:-1);
+   state.pitch=.67;
+ }
  function request(){if(!pending){pending=true;requestAnimationFrame(draw)}}
  function down(e){state.drag=true;state.moved=false;state.downX=e.clientX;state.downY=e.clientY;state.lastX=e.clientX;state.lastY=e.clientY;canvas.setPointerCapture(e.pointerId)}
  function move(e){if(!state.drag)return;if(Math.hypot(e.clientX-state.downX,e.clientY-state.downY)>5)state.moved=true;if(mode==='paper'){state.panX+=e.clientX-state.lastX;state.panY+=e.clientY-state.lastY}else{state.yaw+=(e.clientX-state.lastX)*.009;state.pitch=Math.max(-1.25,Math.min(1.25,state.pitch+(e.clientY-state.lastY)*.008))}state.lastX=e.clientX;state.lastY=e.clientY;request()}
@@ -266,7 +276,7 @@ function cpuView(parts,mount,colorFn,{visibleCount=parts.length,highlightStart=-
  canvas.addEventListener('pointerdown',down);canvas.addEventListener('pointermove',move);canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);canvas.addEventListener('wheel',wheel,{passive:false});
  const observer=new ResizeObserver(()=>{if(!disposed&&mount.isConnected)request()});observer.observe(mount);
  function dispose(){disposed=true;observer.disconnect()}
- active={dispose,mount,parts,zoom(factor){state.zoom=Math.max(.5,Math.min(4,state.zoom*factor));request()},reset(){state.zoom=1;state.panX=0;state.panY=0;request()},update(count,start){visibleCount=count;highlightStart=start;if(state.selected>=visibleCount)state.selected=-1;if(mode==='paper'){state.zoom=1;state.panX=0;state.panY=0}request()},metrics:()=>({backend:'Canvas2D',parts:Math.min(parts.length,visibleCount),drawCalls:draws,lastDrawMs,polygons:pts.length,selectedPart:state.selected,...selectionStats})};request();return active;
+ active={dispose,mount,parts,zoom(factor){state.zoom=Math.max(.5,Math.min(4,state.zoom*factor));request()},reset(){state.zoom=1;state.panX=0;state.panY=0;request()},update(count,start){visibleCount=count;highlightStart=start;if(state.selected>=visibleCount)state.selected=-1;if(mode==='paper'){state.zoom=1;state.panX=0;state.panY=0;autoPaperAngle(count,start)}request()},metrics:()=>({backend:'Canvas2D',parts:Math.min(parts.length,visibleCount),drawCalls:draws,lastDrawMs,polygons:pts.length,selectedPart:state.selected,...selectionStats})};autoPaperAngle(visibleCount,highlightStart);request();return active;
 }
 
 function view(parts,mount,colorFn,{visibleCount=parts.length,highlightStart=-1,mode='model'}={}){
